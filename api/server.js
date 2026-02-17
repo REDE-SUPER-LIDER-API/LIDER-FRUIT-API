@@ -12,10 +12,32 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Conexão com o MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('MongoDB conectado com sucesso'))
-    .catch(err => console.error('Erro ao conectar no MongoDB:', err));
+// Gerenciamento de conexão otimizado para Serverless (Vercel)
+let isConnected = false;
+
+const connectDB = async () => {
+    if (isConnected) {
+        return;
+    }
+    try {
+        const db = await mongoose.connect(process.env.MONGODB_URI);
+        isConnected = db.connections[0].readyState === 1;
+        console.log('MongoDB conectado com sucesso');
+    } catch (error) {
+        console.error('Erro ao conectar no MongoDB:', error);
+        throw error;
+    }
+};
+
+// Middleware: Garante que o banco está conectado antes de processar qualquer rota
+app.use(async (req, res, next) => {
+    try {
+        await connectDB();
+        next();
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Falha na conexão com o banco de dados.' });
+    }
+});
 
 // Schema e Model do Mongoose
 const itemSchema = new mongoose.Schema({
@@ -29,7 +51,8 @@ const pedidoSchema = new mongoose.Schema({
     data: String,
     totalVolumes: Number,
     itens: [itemSchema],
-    recebidoEm: { type: Date, default: Date.now }
+    recebidoEm: { type: Date, default: Date.now },
+    status: { type: String, default: 'recebido' } // 'recebido' ou 'separacao'
 });
 
 const Pedido = mongoose.model('Pedido', pedidoSchema);
@@ -85,6 +108,23 @@ app.get('/api/pedidos', async (req, res) => {
     } catch (erro) {
         console.error('Erro ao ler do MongoDB:', erro);
         res.status(500).json({ success: false, message: 'Erro ao buscar pedidos.' });
+    }
+});
+
+app.patch('/api/pedidos/status', async (req, res) => {
+    const { ids, status } = req.body; // ids: array de IDs, status: novo status
+    try {
+        await Pedido.updateMany({ id: { $in: ids } }, { status: status });
+        
+        // Avisa todos os clientes conectados sobre a mudança
+        clientesConectados.forEach(cliente => {
+            cliente.write(`event: statusAtualizado\ndata: ${JSON.stringify({ ids, status })}\n\n`);
+        });
+
+        res.status(200).json({ success: true, message: 'Status atualizado com sucesso!' });
+    } catch (erro) {
+        console.error('Erro ao atualizar status no MongoDB:', erro);
+        res.status(500).json({ success: false, message: 'Erro ao atualizar o status.' });
     }
 });
 
