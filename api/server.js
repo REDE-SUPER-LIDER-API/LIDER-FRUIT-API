@@ -16,9 +16,7 @@ app.use(express.json());
 let isConnected = false;
 
 const connectDB = async () => {
-    if (isConnected) {
-        return;
-    }
+    if (isConnected) return;
     try {
         const db = await mongoose.connect(process.env.MONGODB_URI);
         isConnected = db.connections[0].readyState === 1;
@@ -29,7 +27,7 @@ const connectDB = async () => {
     }
 };
 
-// Middleware: Garante que o banco está conectado antes de processar qualquer rota
+// Middleware: Garante conexão com o banco
 app.use(async (req, res, next) => {
     try {
         await connectDB();
@@ -52,25 +50,21 @@ const pedidoSchema = new mongoose.Schema({
     totalVolumes: Number,
     itens: [itemSchema],
     recebidoEm: { type: Date, default: Date.now },
-    status: { type: String, default: 'recebido' } // 'recebido' ou 'separacao'
+    status: { type: String, default: 'recebido' } // 'recebido', 'separacao' ou 'finalizado'
 });
 
 const Pedido = mongoose.model('Pedido', pedidoSchema);
 
 app.post('/api/pedidos', async (req, res) => {
-    const pedido = req.body;
-    
     const pedidoParaSalvar = new Pedido({
         id: Date.now(),
-        ...pedido
+        ...req.body
     });
-
     try {
         await pedidoParaSalvar.save();
-        res.status(200).json({ success: true, message: 'Pedido recebido e armazenado com sucesso!', pedido: pedidoParaSalvar });
+        res.status(200).json({ success: true, pedido: pedidoParaSalvar });
     } catch (erro) {
-        console.error('Erro ao salvar no MongoDB:', erro);
-        res.status(500).json({ success: false, message: 'Erro ao salvar o pedido.' });
+        res.status(500).json({ success: false });
     }
 });
 
@@ -79,8 +73,7 @@ app.get('/api/pedidos', async (req, res) => {
         const pedidos = await Pedido.find().sort({ recebidoEm: 1 });
         res.status(200).json(pedidos);
     } catch (erro) {
-        console.error('Erro ao ler do MongoDB:', erro);
-        res.status(500).json({ success: false, message: 'Erro ao buscar pedidos.' });
+        res.status(500).json({ success: false });
     }
 });
 
@@ -88,35 +81,24 @@ app.patch('/api/pedidos/status', async (req, res) => {
     const { ids, status } = req.body;
     try {
         await Pedido.updateMany({ id: { $in: ids } }, { status: status });
-        res.status(200).json({ success: true, message: 'Status atualizado com sucesso!' });
+        res.status(200).json({ success: true });
     } catch (erro) {
-        console.error('Erro ao atualizar status no MongoDB:', erro);
-        res.status(500).json({ success: false, message: 'Erro ao atualizar o status.' });
+        res.status(500).json({ success: false });
     }
 });
 
 app.delete('/api/pedidos/:id', async (req, res) => {
-    const idParaExcluir = parseInt(req.params.id);
-    
     try {
-        const pedidoExcluido = await Pedido.findOneAndDelete({ id: idParaExcluir });
-        if (pedidoExcluido) {
-            res.status(200).json({ success: true, message: 'Pedido excluído com sucesso!' });
-        } else {
-            res.status(404).json({ success: false, message: 'Pedido não encontrado.' });
-        }
+        await Pedido.findOneAndDelete({ id: parseInt(req.params.id) });
+        res.status(200).json({ success: true });
     } catch (erro) {
-        console.error('Erro ao excluir no MongoDB:', erro);
-        res.status(500).json({ success: false, message: 'Erro ao excluir o pedido.' });
+        res.status(500).json({ success: false });
     }
 });
 
-// Configuração para rodar localmente ou no Vercel
 if (process.env.NODE_ENV !== 'production') {
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`Servidor rodando em http://localhost:${PORT}`);
-    });
+    app.listen(PORT, () => console.log(`Servidor rodando em http://localhost:${PORT}`));
 }
 
 module.exports = app;
