@@ -57,31 +57,9 @@ const pedidoSchema = new mongoose.Schema({
 
 const Pedido = mongoose.model('Pedido', pedidoSchema);
 
-let clientesConectados = [];
-
-app.get('/api/pedidos/stream', (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    
-    res.write(': connected\n\n');
-    
-    clientesConectados.push(res);
-
-    req.on('close', () => {
-        clientesConectados = clientesConectados.filter(cliente => cliente !== res);
-    });
-});
-
 app.post('/api/pedidos', async (req, res) => {
     const pedido = req.body;
     
-    console.log('--- NOVO PEDIDO RECEBIDO ---');
-    console.log(`Empresa: ${pedido.empresa}`);
-    console.log(`Data: ${pedido.data}`);
-    console.log(`Total de Volumes: ${pedido.totalVolumes}`);
-    console.log('----------------------------\n');
-
     const pedidoParaSalvar = new Pedido({
         id: Date.now(),
         ...pedido
@@ -89,12 +67,7 @@ app.post('/api/pedidos', async (req, res) => {
 
     try {
         await pedidoParaSalvar.save();
-        
-        clientesConectados.forEach(cliente => {
-            cliente.write(`event: novoPedido\ndata: ${JSON.stringify(pedidoParaSalvar)}\n\n`);
-        });
-
-        res.status(200).json({ success: true, message: 'Pedido recebido e armazenado com sucesso!' });
+        res.status(200).json({ success: true, message: 'Pedido recebido e armazenado com sucesso!', pedido: pedidoParaSalvar });
     } catch (erro) {
         console.error('Erro ao salvar no MongoDB:', erro);
         res.status(500).json({ success: false, message: 'Erro ao salvar o pedido.' });
@@ -112,15 +85,9 @@ app.get('/api/pedidos', async (req, res) => {
 });
 
 app.patch('/api/pedidos/status', async (req, res) => {
-    const { ids, status } = req.body; // ids: array de IDs, status: novo status
+    const { ids, status } = req.body;
     try {
         await Pedido.updateMany({ id: { $in: ids } }, { status: status });
-        
-        // Avisa todos os clientes conectados sobre a mudança
-        clientesConectados.forEach(cliente => {
-            cliente.write(`event: statusAtualizado\ndata: ${JSON.stringify({ ids, status })}\n\n`);
-        });
-
         res.status(200).json({ success: true, message: 'Status atualizado com sucesso!' });
     } catch (erro) {
         console.error('Erro ao atualizar status no MongoDB:', erro);
@@ -133,13 +100,7 @@ app.delete('/api/pedidos/:id', async (req, res) => {
     
     try {
         const pedidoExcluido = await Pedido.findOneAndDelete({ id: idParaExcluir });
-
         if (pedidoExcluido) {
-            clientesConectados.forEach(cliente => {
-                cliente.write(`event: pedidoExcluido\ndata: ${idParaExcluir}\n\n`);
-            });
-
-            console.log(`--- PEDIDO EXCLUÍDO (ID: ${idParaExcluir}) ---\n`);
             res.status(200).json({ success: true, message: 'Pedido excluído com sucesso!' });
         } else {
             res.status(404).json({ success: false, message: 'Pedido não encontrado.' });
@@ -158,5 +119,4 @@ if (process.env.NODE_ENV !== 'production') {
     });
 }
 
-// Exporta o app para o Vercel Serverless
 module.exports = app;
