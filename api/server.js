@@ -50,7 +50,7 @@ const pedidoSchema = new mongoose.Schema({
     totalVolumes: Number,
     itens: [itemSchema],
     recebidoEm: { type: Date, default: Date.now },
-    status: { type: String, default: 'recebido' } // 'recebido', 'separacao' ou 'finalizado'
+    status: { type: String, default: 'recebido' } // 'recebido', 'separacao', 'finalizado' ou 'cancelado'
 });
 
 const Pedido = mongoose.model('Pedido', pedidoSchema);
